@@ -44,7 +44,7 @@ router.post("/make-payment", authMiddleware, async (req, res) => {
       total_amount: amount,
       currency: "BDT",
       tran_id: trx,
-      success_url: `http://localhost:5000/api/bookings/success?busId=${bus}&seats=${seats}&trx=${trx}`,
+      success_url: `http://localhost:5000/api/bookings/success?busId=${bus}&seats=${seats}&trx=${trx}&amount=${amount}`,
       fail_url: `http://localhost:5000/api/bookings/fail?trx=${trx}`,
       cancel_url: `http://localhost:5000/api/bookings/cancel?trx=${trx}`,
       ipn_url: "http://yoursite.com/ipn",
@@ -163,7 +163,7 @@ router.post("/make-payment", authMiddleware, async (req, res) => {
 // });
 
 router.post("/success", async (req, res) => {
-  const { busId, seats, trx } = req.query
+  const { busId, seats, trx ,amount} = req.query
   console.log("req", req.query)
   const bus = await Bus.findById(busId);
   const seatsList = seats.split(",").map(Number)
@@ -176,6 +176,7 @@ router.post("/success", async (req, res) => {
     {
       $set: {
         payment: true,
+        amount:amount
 
       },
     }
@@ -183,6 +184,51 @@ router.post("/success", async (req, res) => {
 
   res.redirect(`http://localhost:3000/order/success?location=${bus?.to}`);
 });
+
+
+// Refund API - Validate transaction ID
+router.get("/refund", async (req, res) => {
+  const { record } = req.query;
+  const transactionId=record?.transactionId
+  if (!transactionId) {
+    return res.status(400).json({ success: false, message: "Transaction ID is required" });
+  }
+
+  try {
+    const response = await axios.get("https://sandbox.sslcommerz.com/validator/api/merchantTransIDvalidationAPI.php", {
+      params: {
+        tran_id: transactionId,
+        store_id: process.env.SSL_STORE_ID,
+        store_passwd:  process.env.SSL_SECRET_KEY,
+        format: "json",
+      },
+    });
+
+    console.log(response)
+
+    if (response.data.status === "VALID") {
+      return res.status(200).json({
+        success: true,
+        message: "Transaction is valid. Refund can be processed.",
+        data: response.data,
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Transaction is invalid or already refunded.",
+        data: response.data,
+      });
+    }
+  } catch (error) {
+    console.error("Refund API Error:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Refund request failed",
+      error: error.message,
+    });
+  }
+});
+
 
 
 
